@@ -156,3 +156,29 @@ class TestTryExcept:
         func()
         out, _ = capsys.readouterr()
         assert "test exception" in out
+
+
+class TestMethods:
+    """Test `utils.general.methods` function."""
+
+    def test_listing_methods(self):
+        """Test getting a list of methods of an instance."""
+        class Dummy:
+            def __init__(self) -> None:
+                pass
+
+            def method1(self):
+                pass
+
+            def method2(self):
+                pass
+
+            def _method3(self):
+                pass
+
+        dummy = Dummy()
+        methods = general_utils.methods(dummy)
+        assert len(methods) == 3
+        assert "method1" in methods
+        assert "method2" in methods
+        assert "_method3" in methods
