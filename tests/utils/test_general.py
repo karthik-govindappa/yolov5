@@ -2,11 +2,14 @@
 """
 Test General utils
 """
+import logging
 import os
-import shutil
-import stat
+import platform
+import time
 from unittest.mock import mock_open, patch
 
+import pytest
+from _pytest.capture import CaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
 
 import utils.general as general_utils
@@ -59,3 +62,73 @@ class TestIsWriteable:
         """
         writeable = general_utils.is_writeable(tmpdir, test=False)
         assert writeable is True
+
+
+# TODO: pytest's logging is interfering with yolov5's logging. Find a better way of testing logging parts.
+# class TestSetLogging:
+#     """Test `utils.general.set_logging` function."""
+#     def test_default_logger(self):
+#         logger = general_utils.set_logging("test")
+#         log_level_number = logger.level
+#         log_level = logging.getLevelName(log_level_number)
+#         assert log_level == "INFO"
+#         assert len(logger.handlers) == 1
+
+#     def test_logger_for_kaggle(self, monkeypatch: MonkeyPatch):
+#         monkeypatch.setenv("PWD", "/kaggle/working")
+#         monkeypatch.setenv("KAGGLE_URL_BASE", "https://www.kaggle.com")
+#         logger = general_utils.set_logging("test")
+#         log_level_number = logger.level
+#         log_level = logging.getLevelName(log_level_number)
+#         assert log_level == "INFO"
+#         assert len(logger.handlers) == 1
+
+class TestUserConfigDir:
+    """Test `utils.general.user_config_dir` function."""
+    def test_default_config_dir(self):
+        """Test default user_config_dir."""
+        path = general_utils.user_config_dir()
+        if platform.system() == "Linux":
+            assert str(path) == "/root/.config/Ultralytics"
+        assert os.path.isdir(path)
+
+    def test_custom_config_dir(self, monkeypatch: MonkeyPatch, tmpdir: str):
+        """Test custom user_config_dir.
+
+        Args:
+            monkeypatch (MonkeyPatch): Fixture for performing monkeypatching.
+            tmpdir (str): Fixture that creates and provides the path to a temporary directory.
+        """
+        monkeypatch.setenv("YOLOV5_CONFIG_DIR", tmpdir)
+        path = general_utils.user_config_dir()
+        assert str(path) == tmpdir
+        assert os.path.isdir(path)
+
+
+class TestProfile:
+    """Test `utils.general.Profile` class."""
+    def test_output(self, capsys: CaptureFixture):
+        """Test post profiling output.
+
+        Args:
+            capsys (CaptureFixture): Fixture for capturing stdout/stderr output.
+        """
+        with general_utils.Profile():
+            pass
+        out, _ = capsys.readouterr()
+        assert "Profile results:" in out
+
+
+class TestTimeout:
+    """Test `utils.general.Timeout` class."""
+    def test_timeout_without_exception(self):
+        """Test timeout without raising error."""
+        with general_utils.Timeout(seconds=1, suppress_timeout_errors=True):
+            time.sleep(1.1)
+
+    def test_timeout_with_exception(self):
+        """Test timeout which raises an exception."""
+        with pytest.raises(TimeoutError) as error:
+            with general_utils.Timeout(seconds=1, timeout_msg="time's up", suppress_timeout_errors=False):
+                time.sleep(1.1)
+        assert str(error.value) == "time's up"
