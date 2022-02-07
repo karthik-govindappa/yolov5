@@ -132,3 +132,27 @@ class TestTimeout:
             with general_utils.Timeout(seconds=1, timeout_msg="time's up", suppress_timeout_errors=False):
                 time.sleep(1.1)
         assert str(error.value) == "time's up"
+
+
+class TestWorkingDirectory:
+    """Test `utils.general.WorkingDirectory` class."""
+    def test_directory_change(self, tmpdir: str):
+        """Test switching of directories."""
+        pre_cwd = os.getcwd()
+        with general_utils.WorkingDirectory(new_dir=tmpdir):
+            new_cwd = os.getcwd()
+        post_cwd = os.getcwd()
+        assert new_cwd == tmpdir
+        assert pre_cwd == post_cwd
+
+
+class TestTryExcept:
+    """Test `utils.general.try_except` function."""
+    def test_exception_is_captured(self, capsys: CaptureFixture):
+        """Test given exception is captured and conveyed."""
+        @general_utils.try_except
+        def func():
+            raise Exception("test exception")
+        func()
+        out, _ = capsys.readouterr()
+        assert "test exception" in out
