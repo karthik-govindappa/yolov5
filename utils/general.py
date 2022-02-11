@@ -35,6 +35,7 @@ from utils.metrics import box_iou, fitness
 # Settings
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]  # YOLOv5 root directory
+DATASETS_DIR = ROOT.parent / 'datasets'  # YOLOv5 datasets directory
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
 VERBOSE = str(os.getenv('YOLOv5_VERBOSE', True)).lower() == 'true'  # global verbose mode
 FONT = 'Arial.ttf'  # https://ultralytics.com/assets/Arial.ttf
@@ -296,7 +297,7 @@ def check_requirements(requirements=ROOT / 'requirements.txt', exclude=(), insta
     for r in requirements:
         try:
             pkg.require(r)
-        except Exception as e:  # DistributionNotFound or VersionConflict if requirements not met
+        except Exception:  # DistributionNotFound or VersionConflict if requirements not met
             s = f"{prefix} {r} not found and is required by YOLOv5"
             if install:
                 LOGGER.info(f"{s}, attempting auto-update...")
@@ -399,8 +400,8 @@ def check_dataset(data, autodownload=True):
     # Download (optional)
     extract_dir = ''
     if isinstance(data, (str, Path)) and str(data).endswith('.zip'):  # i.e. gs://bucket/dir/coco128.zip
-        download(data, dir='../datasets', unzip=True, delete=False, curl=False, threads=1)
-        data = next((Path('../datasets') / Path(data).stem).rglob('*.yaml'))
+        download(data, dir=DATASETS_DIR, unzip=True, delete=False, curl=False, threads=1)
+        data = next((DATASETS_DIR / Path(data).stem).rglob('*.yaml'))
         extract_dir, autodownload = data.parent, False
 
     # Read yaml (optional)
@@ -700,16 +701,16 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     output = [torch.zeros((0, 6), device=prediction.device)] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
-        # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
+        x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
 
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]):
-            l = labels[xi]
-            v = torch.zeros((len(l), nc + 5), device=x.device)
-            v[:, :4] = l[:, 1:5]  # box
+            lb = labels[xi]
+            v = torch.zeros((len(lb), nc + 5), device=x.device)
+            v[:, :4] = lb[:, 1:5]  # box
             v[:, 4] = 1.0  # conf
-            v[range(len(l)), l[:, 0].long() + 5] = 1.0  # cls
+            v[range(len(lb)), lb[:, 0].long() + 5] = 1.0  # cls
             x = torch.cat((x, v), 0)
 
         # If none remain process next image
@@ -783,8 +784,9 @@ def strip_optimizer(f='best.pt', s=''):  # from utils.general import *; strip_op
     LOGGER.info(f"Optimizer stripped from {f},{(' saved as %s,' % s) if s else ''} {mb:.1f}MB")
 
 
-def print_mutation(results, hyp, save_dir, bucket):
-    evolve_csv, results_csv, evolve_yaml = save_dir / 'evolve.csv', save_dir / 'results.csv', save_dir / 'hyp_evolve.yaml'
+def print_mutation(results, hyp, save_dir, bucket, prefix=colorstr('evolve: ')):
+    evolve_csv = save_dir / 'evolve.csv'
+    evolve_yaml = save_dir / 'hyp_evolve.yaml'
     keys = ('metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5:0.95',
             'val/box_loss', 'val/obj_loss', 'val/cls_loss') + tuple(hyp.keys())  # [results + hyps]
     keys = tuple(x.strip() for x in keys)
@@ -802,21 +804,23 @@ def print_mutation(results, hyp, save_dir, bucket):
     with open(evolve_csv, 'a') as f:
         f.write(s + ('%20.5g,' * n % vals).rstrip(',') + '\n')
 
-    # Print to screen
-    LOGGER.info(colorstr('evolve: ') + ', '.join(f'{x.strip():>20s}' for x in keys))
-    LOGGER.info(colorstr('evolve: ') + ', '.join(f'{x:20.5g}' for x in vals) + '\n\n')
-
     # Save yaml
     with open(evolve_yaml, 'w') as f:
         data = pd.read_csv(evolve_csv)
         data = data.rename(columns=lambda x: x.strip())  # strip keys
-        i = np.argmax(fitness(data.values[:, :7]))  #
+        i = np.argmax(fitness(data.values[:, :4]))  #
+        generations = len(data)
         f.write('# YOLOv5 Hyperparameter Evolution Results\n' +
                 f'# Best generation: {i}\n' +
-                f'# Last generation: {len(data) - 1}\n' +
+                f'# Last generation: {generations - 1}\n' +
                 '# ' + ', '.join(f'{x.strip():>20s}' for x in keys[:7]) + '\n' +
                 '# ' + ', '.join(f'{x:>20.5g}' for x in data.values[i, :7]) + '\n\n')
-        yaml.safe_dump(hyp, f, sort_keys=False)
+        yaml.safe_dump(data.loc[i][7:].to_dict(), f, sort_keys=False)
+
+    # Print to screen
+    LOGGER.info(prefix + f'{generations} generations finished, current result:\n' +
+                prefix + ', '.join(f'{x.strip():>20s}' for x in keys) + '\n' +
+                prefix + ', '.join(f'{x:20.5g}' for x in vals) + '\n\n')
 
     if bucket:
         os.system(f'gsutil cp {evolve_csv} {evolve_yaml} gs://{bucket}')  # upload

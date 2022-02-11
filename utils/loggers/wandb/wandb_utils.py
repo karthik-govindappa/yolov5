@@ -288,7 +288,7 @@ class WandbLogger():
             model_artifact = wandb.use_artifact(remove_prefix(opt.resume, WANDB_ARTIFACT_PREFIX) + ":latest")
             assert model_artifact is not None, 'Error: W&B model artifact doesn\'t exist'
             modeldir = model_artifact.download()
-            epochs_trained = model_artifact.metadata.get('epochs_trained')
+            # epochs_trained = model_artifact.metadata.get('epochs_trained')
             total_epochs = model_artifact.metadata.get('total_epochs')
             is_finished = total_epochs is None
             assert not is_finished, 'training is finished, can only resume incomplete runs.'
@@ -356,7 +356,7 @@ class WandbLogger():
         # create a _wandb.yaml file with artifacts links if both train and test set are logged
         if not log_val_only:
             path = (path.stem if overwrite_config else path.stem + '_wandb') + '.yaml'  # updated data.yaml path
-            path = Path('data') / path
+            path = ROOT / 'data' / path
             data.pop('download', None)
             data.pop('path', None)
             with open(path, 'w') as f:
